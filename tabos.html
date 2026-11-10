@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e2236">
+<meta name="mobile-web-app-capable" content="yes">
+<title>TabOS</title>
+<style>
+:root{--bg:#0e2236;--panel:#163450;--line:#2c5578;--text:#e9f2f9;--dim:#8fb0c9;--accent:#f0b43c;color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:"Trebuchet MS",system-ui,sans-serif;overflow:hidden}
+body{padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+.screen{position:fixed;inset:0;display:none;padding:max(24px,env(safe-area-inset-top)) 24px 24px}
+.screen.on{display:flex;flex-direction:column}
+#boot{font-family:ui-monospace,"Courier New",monospace;justify-content:flex-end;font-size:17px;line-height:1.7;color:var(--dim)}
+#boot b{color:var(--accent);font-weight:700}
+#boot .hint{margin-top:18px;font-size:14px;opacity:.7}
+#menu{align-items:center;justify-content:center}
+.wrap{width:100%;max-width:560px}
+.top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:28px}
+h1{font-size:44px;letter-spacing:.02em}
+#clock{color:var(--dim);font-size:18px}
+.entry{display:block;width:100%;text-align:left;background:var(--panel);color:var(--text);border:2px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:14px;font:inherit;cursor:pointer}
+.entry strong{display:block;font-size:22px;margin-bottom:4px}
+.entry span{color:var(--dim);font-size:15px}
+.entry:first-of-type{border-color:var(--accent)}
+.entry:active,.entry:focus-visible{background:#1d4468;outline:3px solid var(--accent);outline-offset:2px}
+#err{color:#ff9b8a;min-height:22px;margin-top:6px;font-size:15px}
+#run{padding:0}
+#frame{flex:1;width:100%;border:0;background:#fff}
+#exit{position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom,0));width:44px;height:44px;border-radius:50%;border:2px solid var(--line);background:var(--bg);color:var(--text);font-size:20px;opacity:.45;z-index:5}
+#exit:focus-visible,#exit:active{opacity:1;outline:3px solid var(--accent)}
+</style>
+</head>
+<body>
+
+<section id="boot" class="screen on" aria-live="polite"></section>
+
+<section id="menu" class="screen">
+  <div class="wrap">
+    <div class="top"><h1>TabOS</h1><div id="clock"></div></div>
+    <button class="entry" id="runBtn"><strong>Run an HTML file</strong><span>Choose a .html file stored on this tablet</span></button>
+    <button class="entry" id="rebootBtn"><strong>Restart</strong><span>Play the startup sequence again</span></button>
+    <p id="err" role="alert"></p>
+  </div>
+</section>
+
+<section id="run" class="screen">
+  <iframe id="frame" title="Running file" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-pointer-lock allow-downloads"></iframe>
+  <button id="exit" aria-label="Exit to menu">&#x2715;</button>
+</section>
+
+<input type="file" id="pick" accept=".html,.htm,text/html" hidden>
+
+<script>
+(function(){
+  var $ = function(id){return document.getElementById(id)};
+  var boot=$('boot'), menu=$('menu'), run=$('run'), frame=$('frame'), pick=$('pick'), err=$('err');
+  var timers=[], currentUrl=null;
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function show(el){[boot,menu,run].forEach(function(s){s.classList.toggle('on',s===el)})}
+
+  var lines=[
+    'TabOS 1.0',
+    'Checking memory… <b>ok</b>',
+    'Mounting storage… <b>ok</b>',
+    'Starting launcher… <b>ok</b>'
+  ];
+
+  function startBoot(){
+    timers.forEach(clearTimeout); timers=[];
+    boot.innerHTML=''; err.textContent=''; show(boot);
+    lines.forEach(function(l,i){
+      timers.push(setTimeout(function(){
+        var d=document.createElement('div'); d.innerHTML=l; boot.appendChild(d);
+        if(i===0){d.style.color='var(--text)'}
+      }, reduce?0:i*550));
+    });
+    timers.push(setTimeout(function(){
+      var h=document.createElement('div'); h.className='hint'; h.textContent='Tap to continue'; boot.appendChild(h);
+    }, reduce?0:lines.length*550));
+    timers.push(setTimeout(toMenu, reduce?300:lines.length*550+1200));
+  }
+
+  function toMenu(){timers.forEach(clearTimeout); timers=[]; show(menu); $('runBtn').focus()}
+
+  boot.addEventListener('click', toMenu);
+  $('rebootBtn').addEventListener('click', startBoot);
+  $('runBtn').addEventListener('click', function(){err.textContent=''; pick.click()});
+
+  pick.addEventListener('change', function(){
+    var f=pick.files && pick.files[0];
+    pick.value='';
+    if(!f) return;
+    f.text().then(function(txt){
+      if(currentUrl) URL.revokeObjectURL(currentUrl);
+      currentUrl=URL.createObjectURL(new Blob([txt],{type:'text/html'}));
+      frame.src=currentUrl;
+      show(run);
+      var el=document.documentElement;
+      if(el.requestFullscreen) el.requestFullscreen().catch(function(){});
+    }).catch(function(){
+      err.textContent='Couldn’t open that file. Choose a file that ends in .html.';
+    });
+  });
+
+  $('exit').addEventListener('click', function(){
+    frame.src='about:blank';
+    if(currentUrl){URL.revokeObjectURL(currentUrl); currentUrl=null}
+    if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+    show(menu); $('runBtn').focus();
+  });
+
+  function tick(){
+    var d=new Date();
+    $('clock').textContent=d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  }
+  tick(); setInterval(tick,15000);
+
+  startBoot();
+})();
+</script>
+</body>
+</html>
